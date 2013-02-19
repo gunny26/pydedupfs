@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#/usr/bin/env python
 # -*- coding: utf-8 -*- 
 #
 # This program is free software; you can redistribute it and/or modify
@@ -85,6 +85,7 @@ class PyDedupFS(fuse.Fuse):
 
     def rmdir(self, path):
         self.logger.debug("PyDedupFS.rmdir(%s)", path)
+        meta_storage.rmdir(path)
 
     def symlink(self, path, path1):
         self.logger.debug("PyDedupFS.symlink(%s, %s)", path, path1)
@@ -175,9 +176,31 @@ class PyDedupFS(fuse.Fuse):
             - f_ffree - nunber of free file inodes
         """
         self.logger.debug("PyDedupFS.statfs()")
-        statvfs = fuse.StatVfs()
-        statvfs.f_bsize = 1024 * 128
-        statvfs.f_frsize = 1024 * 128
+        blocksize = 1024 * 128
+        # from https://github.com/xolox/dedupfs/blob/master/dedupfs.py
+        # TODO make this a parameter
+        host_fs = os.statvfs("/home/mesznera/pydedupfs")
+        return fuse.StatVfs(
+            f_bavail = (host_fs.f_bsize * host_fs.f_bavail) / blocksize, 
+            # The total number of free blocks available to a non privileged process.
+            f_bfree = (host_fs.f_frsize * host_fs.f_bfree) / blocksize, 
+            # The total number of free blocks in the file system.
+            f_blocks = (host_fs.f_frsize * host_fs.f_blocks) / blocksize, 
+            # The total number of blocks in the file system in terms of f_frsize.
+            f_bsize = blocksize, 
+            # The file system block size in bytes.
+            f_favail = 0, 
+            # The number of free file serial numbers available to a non privileged process.
+            f_ffree = 0, 
+            # The total number of free file serial numbers.
+            f_files = 0, 
+            # The total number of file serial numbers.
+            f_flag = 0, 
+            # File system flags. Symbols are defined in the <sys/statvfs.h> header file to refer to bits in this field (see The f_flags field).
+            f_frsize = blocksize, 
+            # The fundamental file system block size in bytes.
+            f_namemax = 4294967295) 
+            # The maximum file name length in the file system. Some file systems may return the maximum value that can be stored in an unsigned long to indicate the file system has no maximum file name length. The maximum value that can be stored in an unsigned long is defined in <limits.h> as ULONG_MAX.
 
     def fsinit(self):
         self.logger.debug("PyDedupFS.fsinit()")
@@ -266,13 +289,14 @@ def main():
     server = PyDedupFS(version="%prog " + fuse.__version__,
                  usage=usage,
                  dash_s_do='setsingle')
+    # does not work with threads
     server.multithreaded = False
     server.parse(values=server, errex=1)
     server.main()
 
 
 if __name__ == '__main__':
-    # add option -d for foreground display an fuse for mountpoint
+    # add option -f for foreground display an fuse for mountpoint
     # add --base as base directory for real data
     sys.argv = [sys.argv[0], "-f", "/home/mesznera/fuse"]
     # global MetaStorage Object
@@ -283,4 +307,3 @@ if __name__ == '__main__':
     s.sort_stats('time')
     s.print_stats(0.1)
     os.unlink(profile)
-    # cProfile.run("main()")

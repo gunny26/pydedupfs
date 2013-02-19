@@ -28,20 +28,23 @@ import sqlite3
 import cPickle
 import logging
 
-class FileStorage(object):
-    """storage of unique file digests"""
+class FileStorageSqlite(object):
+    """storage of unique file digests with sqlite backend"""
 
     def __init__(self, db_path):
         """holds information, to build file with digest from list of blocks"""
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.ERROR)
         # holds mapping digest of file : (sequence, number of references)
-        self.conn = sqlite3.connect(os.path.join(db_path, "filestorage"))
+        self.conn = sqlite3.connect(os.path.join(db_path, "filestorage.db"))
         # return dict not list
         self.conn.row_factory = sqlite3.Row
-        cur = self.conn.cursor()
-        # cur.execute("DROP TABLE IF EXISTS filestorage")
-        cur.execute("CREATE TABLE IF NOT EXISTS filestorage (digest text PRIMARY KEY, nlink int, sequence text)")
+        # self.conn.execute("DROP TABLE IF EXISTS filestorage")
+        self.conn.execute("CREATE TABLE IF NOT EXISTS filestorage (digest text PRIMARY KEY, nlink int, sequence text)")
+        # set isolation level to None, we use only key value store no transactions
+        self.conn.execute("PRAGMA journal_mode=OFF")
+        # vacuum database at start
+        self.conn.execute("VACUUM filestorage")
 
     def get(self, digest):
         """returns information about file with digest"""
@@ -57,29 +60,24 @@ class FileStorage(object):
     def put(self, digest, sequence):
         """adds information to file with digest"""
         self.logger.debug("FileStorage.put(%s, <sequence>)", digest)
-        cur = self.conn.cursor()
+        # TODO find a better way to realize INSERT or UPDATE behaviour
         try:
-            cur.execute("INSERT INTO filestorage VALUES (?, 1, ?)", (digest, cPickle.dumps(sequence)))
+            with self.conn:
+                self.conn.execute("INSERT INTO filestorage VALUES (?, 1, ?)", (digest, cPickle.dumps(sequence)))
         except sqlite3.IntegrityError:
-            # TODO find better to insert OR update
-            cur.execute("UPDATE filestorage set nlink=(nlink+1) where digest=?", (digest, ))
+            # so it must be an update
+            with self.conn:
+                self.conn.execute("UPDATE filestorage set nlink=(nlink+1) where digest=?", (digest, ))
         self.conn.commit()
 
     def delete(self, digest):
         """delte entry in database"""
         self.logger.debug("FileStorage.delete(%s)", digest)
-        cur = self.conn.cursor()
-        cur.execute("SELECT nlink FROM filestorage WHERE digest=?", (digest, ))
-        row = cur.fetchone()
-        if row is None:
-            # return silently if no entry is found in database
-            return()
-        if row["nlink"] == 1:
-            cur.execute("DELETE FROM filestorage WHERE digest=?", (digest, ))
-        else:
-            cur.execute("UPDATE filestorage SET nlink=nlink-1 where digest=?", (digest, ))
-            self.logger.info("Duplicate File found with digest %s", digest)
-        self.conn.commit()
+        with self.conn:
+            # first decrease by one
+            self.conn.execute("UPDATE filestorage SET nlink=nlink-1 where digest=?", (digest, ))
+            # the delete all rows with nlink=0
+            self.conn.execute("DELETE FROM filestorage WHERE digest=? and nlink=0", (digest, ))
 
     def __del__(self):
         self.conn.commit()

@@ -24,63 +24,54 @@ __date__ = "$Date$"
 # $Id
 
 import os
-import sqlite3
+import gdbm
 import cPickle
 import logging
 
-class FileStorage(object):
-    """storage of unique file digests"""
+class FileStorageGdbm(object):
+    """storage of unique file digests in gdbm backend"""
 
     def __init__(self, db_path):
         """holds information, to build file with digest from list of blocks"""
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.ERROR)
         # holds mapping digest of file : (sequence, number of references)
-        self.conn = sqlite3.connect(os.path.join(db_path, "filestorage"))
-        # return dict not list
-        self.conn.row_factory = sqlite3.Row
-        cur = self.conn.cursor()
-        # cur.execute("DROP TABLE IF EXISTS filestorage")
-        cur.execute("CREATE TABLE IF NOT EXISTS filestorage (digest text PRIMARY KEY, nlink int, sequence text)")
+        self.gdbm = gdbm.open(os.path.join(db_path, "filestorage.gdbm"), "c")
 
     def get(self, digest):
         """returns information about file with digest"""
         self.logger.debug("FileStorage.get(%s)", digest)
-        cur = self.conn.cursor()
-        cur.execute("SELECT sequence FROM filestorage WHERE digest = ?", (digest, ))
-        row = cur.fetchone()
-        if row is not None:
-            return(cPickle.loads(row["sequence"].encode("utf-8")))
-        else:
+        try:
+            (nlinks, sequence) = cPickle.loads(self.gdbm[digest])
+            return(sequence)
+        except KeyError:
             return(None)
 
     def put(self, digest, sequence):
         """adds information to file with digest"""
         self.logger.debug("FileStorage.put(%s, <sequence>)", digest)
-        cur = self.conn.cursor()
-        try:
-            cur.execute("INSERT INTO filestorage VALUES (?, 1, ?)", (digest, cPickle.dumps(sequence)))
-        except sqlite3.IntegrityError:
-            # TODO find better to insert OR update
-            cur.execute("UPDATE filestorage set nlink=(nlink+1) where digest=?", (digest, ))
-        self.conn.commit()
+        if self.gdbm.has_key(digest):
+            # entry exists, refrence counter up by 1
+            (nlinks, sequence) = cPickle.loads(self.gdbm[digest])
+            nlinks = str(int(nlinks) + 1)
+            self.gdbm[digest] = cPickle.dumps((nlinks, sequence))
+        else:
+            # new entry
+            self.gdbm[digest] = cPickle.dumps(("1", sequence))
 
     def delete(self, digest):
         """delte entry in database"""
         self.logger.debug("FileStorage.delete(%s)", digest)
-        cur = self.conn.cursor()
-        cur.execute("SELECT nlink FROM filestorage WHERE digest=?", (digest, ))
-        row = cur.fetchone()
-        if row is None:
-            # return silently if no entry is found in database
-            return()
-        if row["nlink"] == 1:
-            cur.execute("DELETE FROM filestorage WHERE digest=?", (digest, ))
+        if self.gdbm.has_key(digest):
+            (nlinks, sequence) = cPickle.loads(self.gdbm[digest])
+            nlinks = int(nlinks)
+            if nlinks == 1:
+                # this is the last reference, so delete entry
+                del self.gdbm[digest]
+            else:
+                # reference counter down by 1
+                self.gdbm[digest] = cPickle.dumps((str(nlinks - 1), sequence))
         else:
-            cur.execute("UPDATE filestorage SET nlink=nlink-1 where digest=?", (digest, ))
-            self.logger.info("Duplicate File found with digest %s", digest)
-        self.conn.commit()
-
-    def __del__(self):
-        self.conn.commit()
-        self.conn.close()
+            logging.error("File with digest %s not found in file_storage", digest)
+        # nothing special to return either if found or not found
+        return()

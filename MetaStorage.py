@@ -47,7 +47,14 @@ from BlockStorageGdbm import BlockStorageGdbm as BlockStorage
 # GDBM and Zlib Compression
 #from BlockStorageGdbm import BlockStorageGdbm as BlockStorage
 
-from FileStorage import FileStorage as FileStorage
+# import one type of FileStorage
+# original version, also sqlite but not tuned
+# from FileStorage import FileStorage as FileStorage
+# tuned sqlite version
+# from FileStorageSqlite import FileStorageSqlite as FileStorage
+# gdbm version
+from FileStorageGdbm import FileStorageGdbm as FileStorage
+
 from StatDefaultDir import StatDefaultDir as StatDefaultDir
 from StatDefaultFile import StatDefaultFile as StatDefaultFile
 
@@ -82,11 +89,15 @@ class MetaStorage(object):
 
         # sqlite database
         self.conn = sqlite3.connect(os.path.join(db_path, "metastorage.db"))
+        # TODO no journal and temporary store in memory
+        # self.conn.execute("PRAGMA temp_store=MEMORY;")
+        # self.conn.execute("PRAGMA journal_mode=MEMORY;")
         # return dict not list
         self.conn.row_factory = sqlite3.Row
-        cur = self.conn.cursor()
         # cur.execute("DROP TABLE IF EXISTS metastorage")
-        cur.execute("CREATE TABLE IF NOT EXISTS metastorage (parent text, abspath text PRIMARY KEY, digest text, st text)") 
+        self.conn.execute("CREATE TABLE IF NOT EXISTS metastorage (parent text, abspath text PRIMARY KEY, digest text, st text)") 
+        # vacuum table on statup
+        self.conn.execute("VACUUM metastorage")
         # create root directory node, if not exists
         if not self.exists("/"):
             self.mkdir("/")
@@ -117,56 +128,42 @@ class MetaStorage(object):
         self.conn.commit()
         self.conn.close()
 
-    def __write(self, abspath, digest, sequence, size):
-        """Low level write call to write data to filei_storage and create entry in meta_storage"""
-        self.logger.debug("MetaStorage.write(%s, %s, <sequence>)", abspath, digest)
+    def write(self, abspath, data):
+        """write data to file over write_buffer"""
+        # from write_buffer len(writen_data) comes back
+        return(self.write_buffer.add(data))
+
+    def release(self, abspath):
+        """
+        close file after writing, write remaining data in buffers
+        and finalize file information in meta_storage
+        """
+        # get the latest informations about the written file
+        (digest, sequence, size) = self.write_buffer.release()
         # generate st struct
         st = StatDefaultFile()
         st.st_size = size
-        cur = self.conn.cursor()
-        cur.execute("UPDATE metastorage set digest=?, st=? where abspath=?", (digest, cPickle.dumps(st), unicode(abspath)))
-        self.conn.commit()
-        self.file_storage.put(digest, sequence)
+        with self.conn:
+            self.conn.execute("UPDATE metastorage set digest=?, st=? where abspath=?", (digest, cPickle.dumps(st), unicode(abspath)))
+            self.file_storage.put(digest, sequence)
 
-    def write(self, abspath, data):
-        """write data to file over write_buffer"""
-        len_buf = self.write_buffer.add(data)
-        return(len_buf)
-
-    def release(self, abspath):
-        """close file after writing, write remaining data in buffers"""
-        (filehash, sequence, size) = self.write_buffer.release()
-        self.__write(abspath, filehash, sequence, size)
-
-    def __get_st(self, abspath=None, digest=None):
+    def __get_stat_by_abspath(self, abspath=None):
         """returns stat struct"""
-        self.logger.debug("MetaStorage.__get_st(%s, %s)", abspath, digest)
+        self.logger.debug("MetaStorage.__get_stat_by_abspath(%s)", abspath)
         cur = self.conn.cursor()
-        c_st = None
-        if abspath is not None:
-            cur.execute("SELECT st from metastorage where abspath=? limit 1", (unicode(abspath), ))
-            for row in cur.fetchall():
-                c_st = row["st"]
-        elif digest is not None:
-            cur.execute("SELECT st from metastorage where digest=?", (digest, ))
-            for row in cur.fetchall():
-                c_st = row["st"]
-        if c_st is None:
+        cur.execute("SELECT st from metastorage where abspath=?", (unicode(abspath), ))
+        row = cur.fetchone()
+        if row is None:
             raise NoEntry("No Entry in database")
-        st = cPickle.loads(c_st.encode("utf-8"))
+        st = cPickle.loads(row["st"].encode("utf-8"))
         return(st)
 
-    def __put_st(self, st, abspath=None, digest=None):
-        """updates table with new """
-        self.logger.debug("MetaStorage.__put_st(%s, %s, %s)", st, abspath, digest)
+    def __put_stat_by_abspath(self, st, abspath):
+        """updates table with new stat informations"""
+        self.logger.debug("MetaStorage.__put_stat_by_abspath(%s, %s)", st, abspath)
         c_st = cPickle.dumps(st)
-        cur = self.conn.cursor()
-        if abspath is not None:
-            cur.execute("UPDATE metastorage set st=? where abspath=?", (c_st,  unicode(abspath)))
-            self.conn.commit()
-        elif digest is not None:
-            cur.execute("UPDATE metastorage set st=? where digest=?", (c_st, digest))
-            self.conn.commit()
+        with self.conn:
+            self.conn.execute("UPDATE metastorage set st=? where abspath=?", (c_st,  unicode(abspath)))
 
     def __path_to_digest(self, abspath):
         """get digest from path"""
@@ -225,7 +222,7 @@ class MetaStorage(object):
         """return stat of path if file exists"""
         self.logger.debug("MetaStorage.exists(%s)", abspath)
         try:
-            st = self.__get_st(abspath=abspath)
+            st = self.__get_stat_by_abspath(abspath)
             return(st)
         except NoEntry:
             return(False)
@@ -233,8 +230,7 @@ class MetaStorage(object):
     def isfile(self, abspath):
         """true if entry is a file"""
         self.logger.debug("MetaStorage.isfile(%s)", abspath)
-        entry = self.__get_entry(abspath)
-        st = entry["st"]
+        st = self.__get_stat_by_abspath(abspath)
         if st.mode & stat.S_IFREG :
             return(True)
         else:
@@ -244,17 +240,16 @@ class MetaStorage(object):
     def utime(self, abspath, atime, mtime):
         """sets utimes in st structure"""
         self.logger.debug("MetaStorage.utime(abspath=%s, atime=%s, mtime=%s)", abspath, atime, mtime)
-        st = self.__get_st(abspath)
+        st = self.__get_stat_by_abspath(abspath)
         st.st_mtime = mtime
         st.st_atime = atime
-        self.__put_st(st, abspath)
+        self.__put_stat_by_abspath(st, abspath)
         
 
     def isdir(self, abspath):
         """true if entry is a directory"""
         self.logger.debug("MetaStorage.isdir(%s)", abspath)
-        entry = self.__get_entry(abspath)
-        st = entry["st"]
+        st = self.__get_stat_by_abspath(abspath)
         if st.mode & stat.S_IFDIR :
             return(True)
         else:
@@ -271,7 +266,7 @@ class MetaStorage(object):
             # ignore root
             if row["abspath"] == "/":
                 continue
-            # return only basename ob abspath
+            # return only relative pathnames
             direntries.append(row["abspath"].split("/")[-1].encode("utf-8"))
         return(direntries)
 
@@ -303,9 +298,8 @@ class MetaStorage(object):
     def __add_entry(self, parent, abspath, st, digest=None):
         """add entry to database, both file or directory"""
         self.logger.debug("MetaStorage.__add_entry(%s, %s)", abspath, st)
-        cur = self.conn.cursor()
-        cur.execute("INSERT into metastorage values (?, ?, ?, ?)", (unicode(parent), unicode(abspath), digest, cPickle.dumps(st)))
-        self.conn.commit()
+        with self.conn:
+            self.conn.execute("INSERT into metastorage values (?, ?, ?, ?)", (unicode(parent), unicode(abspath), digest, cPickle.dumps(st)))
 
     def __get_entry(self, abspath=None, digest=None):
         """returns full data row to abspath, or digest if not found NoEntry Exception"""
@@ -336,39 +330,42 @@ class MetaStorage(object):
             sequence = self.file_storage.get(digest)
             if sequence is not None or len(sequence) == 0:
                 # delete block in sequence
-                for block in sequence:
-                    self.block_storage.delete(block)
+                map(self.block_storage.delete, sequence)
             # delete file in filestorage
             self.file_storage.delete(digest)
         except NoEntry:
             # there is no digest for 0-byte files __path__to_digest will return exception
             self.logger.error("No digest to abspath=%s found, zero byte file", abspath)
         # delete from meta_storage, so directory entry will be deleted
-        cur = self.conn.cursor()
-        cur.execute("DELETE FROM metastorage WHERE abspath=?", (unicode(abspath), ))
-        self.conn.commit()
+        with self.conn:
+            self.conn.execute("DELETE FROM metastorage WHERE abspath=?", (unicode(abspath), ))
+
+    def rmdir(self, abspath):
+        """delete directory entry"""
+        # we trust fuse that it dont delete parent directories before childs
+        with self.conn:
+            self.conn.execute("DELETE from metastorage where abspath=?", (unicode(abspath), ))
 
     def rename(self, abspath, abspath1):
         """rename entry"""
         self.logger.debug("MetaStorage.rename(%s, %s)", abspath, abspath1)
-        cur = self.conn.cursor()
-        # if file already exists, overwrite
+        # if file already exists, delete
         # TODO ist this the best way ?
-        cur.execute("DELETE FROM metastorage WHERE abspath=?", (unicode(abspath1), ))
-        cur.execute("UPDATE metastorage SET abspath=? WHERE abspath=?", (unicode(abspath1), unicode(abspath)))    
-        self.conn.commit()
+        with self.conn:
+            self.conn.execute("DELETE FROM metastorage WHERE abspath=?", (unicode(abspath1), ))
+            self.conn.execute("UPDATE metastorage SET abspath=? WHERE abspath=?", (unicode(abspath1), unicode(abspath)))    
 
     def chown(self, abspath, uid, gid):
         """change ownership information"""
         self.logger.debug("MetaStorage.chown(%s, %s, %s)", abspath, uid, gid)
-        st = self.__get_st(abspath=abspath)
-        st.st_uid = uid
-        st.st_gid = gid
-        self.__put_st(st, abspath=abspath)
+        stat = self.__get_stat_by_abspath(abspath)
+        stat.st_uid = uid
+        stat.st_gid = gid
+        self.__put_stat_by_abspath(stat, abspath)
 
     def chmod(self, abspath, mode):
         """change mode"""
         self.logger.debug("MetaStorage.chmod(%s, %s)", abspath, mode)
-        st = self.__get_st(abspath=abspath)
-        st.st_mode = mode
-        self.__put_st(st, abspath=abspath)
+        stat = self.__get_stat_by_abspath(abspath)
+        stat.st_mode = mode
+        self.__put_stat_by_abspath(stat, abspath)
