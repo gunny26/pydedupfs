@@ -28,6 +28,7 @@ import sys
 # hack to set default encoding to utf-8
 reload(sys)
 sys.setdefaultencoding('utf-8')
+import errno
 import fuse
 if not hasattr(fuse, '__version__'):
     raise RuntimeError, \
@@ -42,28 +43,18 @@ import cProfile
 import pstats
 # own modules
 from MetaStorage import MetaStorage as MetaStorage
-from PyDedupFSExceptions import *
-from PyDedupFile import PyDedupFile as PyDedupFile
+
 
 class PyDedupFS(fuse.Fuse):
     """Fuse Interface Class"""
 
     def __init__(self, *args, **kw):
         self.logger = logging.getLogger()
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(logging.DEBUG)
         self.logger.debug("PyDedupFS.__init__(%s, %s)", args, kw)
-        # TODO : are there other parameters to set
-        self.direct_io = False
-        self.keep_cache = False
-        # dirty flag
-        self.isdirty = False
-        fuse.Fuse.__init__(self, *args, **kw)
-        # wrapper to own file class, to pass meta_storage object
-        class wrapped_file_class(PyDedupFile):
-            def __init__(self2, *a, **kw):
-                PyDedupFile.__init__(self2, self.meta_storage, *a, **kw)
         # set own file class
-        self.file_class = wrapped_file_class
+        self.file_class = self.PyDedupFile
+        fuse.Fuse.__init__(self, *args, **kw)
 
     def getattr(self, path):
         """
@@ -71,10 +62,11 @@ class PyDedupFS(fuse.Fuse):
         return errno.ENOENT if File does not exist
         """
         self.logger.debug("PyDedupFS.getattr(%s)", path)
-        try:
-            return(self.meta_storage.getattr(path))
-        except NoEntry:
-            return(-fuse.ENOENT)
+        st = meta_storage.exists(path)
+        if st is not False:
+            return(st)
+        else:
+            return(-errno.ENOENT)
 
     def readlink(self, path):
         """
@@ -90,26 +82,17 @@ class PyDedupFS(fuse.Fuse):
         yield fuse.Direntry(str(name of file), inode)
         prepend . and .. entries
         """
-        self.logger.debug("PyDedupFS.readdir(%s, offset=%s)", path, offset)
-        for entry in self.meta_storage.readdir(path):
+        self.logger.debug("PyDedupFS.readdir(%s, %s)", path, offset)
+        for entry in meta_storage.readdir(path):
             yield fuse.Direntry(entry)
 
     def unlink(self, path):
-        """unlink file"""
         self.logger.debug("PyDedupFS.unlink(%s)", path)
-        self.meta_storage.unlink(path)
-        return(0)
+        meta_storage.unlink(path)
 
     def rmdir(self, path):
-        """remove directory"""
         self.logger.debug("PyDedupFS.rmdir(%s)", path)
-        self.meta_storage.rmdir(path)
-        return(0)
-
-    def truncate(self, path, offset):
-        """change the size of a file"""
-        self.logger.debug("PyDedupFS.truncate(%s, offset=%s)", path, offset)
-        return(0)
+        meta_storage.rmdir(path)
 
     def symlink(self, path, symlink):
         """
@@ -130,7 +113,7 @@ class PyDedupFS(fuse.Fuse):
         if target name exists, delete file it
         """
         self.logger.debug("PyDedupFS.rename(%s, %s)", path, path1)
-        self.meta_storage.rename(path, path1)
+        meta_storage.rename(path, path1)
         return(0)
 
     def link(self, path, path1):
@@ -150,8 +133,8 @@ class PyDedupFS(fuse.Fuse):
         0 if success
         errno.EIO if something went wrong
         """
-        self.logger.debug("PyDedupFS.chmod(%s, mode=%s)", path, mode)
-        self.meta_storage.chmod(path, mode)
+        self.logger.debug("PyDedupFS.chmod(%s, %s)", path, mode)
+        meta_storage.chmod(path, mode)
         return(0)
 
     def chown(self, path, user, group):
@@ -159,8 +142,8 @@ class PyDedupFS(fuse.Fuse):
         0 is success
         errno.EIO if something went wrong
         """
-        self.logger.debug("PyDedupFS.chown(%s, user=%s, group=%s)", path, user, group)
-        self.meta_storage.chown(path, user, group)
+        self.logger.debug("PyDedupFS.chown(%s, %s, %s)", path, user, group)
+        meta_storage.chown(path, user, group)
         return(0)
 
     def mknod(self, path, mode, dev):
@@ -168,27 +151,19 @@ class PyDedupFS(fuse.Fuse):
         we dont want special Files
         NOT IMPLEMENTED : we dont want special Files
         """
-        self.logger.debug("PyDedupFS.mknod(%s, mode=%s, dev=%s)", path, mode, dev) 
+        self.logger.debug("PyDedupFS.mknod(%s, %s, %s)", path, mode, dev) 
         return(0)
 
     def mkdir(self, path, mode):
-        self.logger.debug("PyDedupFS.mkdir(%s, mode=%s)", path, mode)
-        self.meta_storage.mkdir(path, mode)
+        self.logger.debug("PyDedupFS.mkdir(%s, %s)", path, mode)
+        meta_storage.mkdir(path, mode)
         return(0)
 
     def utime(self, path, times):
-        """deprecated applications should use utimens"""
-        self.logger.debug("PyDedupFS.utime(%s, times=%s)", path, times)
+        self.logger.debug("PyDedupFS.utime(%s, %s)", path, times)
         atime, mtime = times
-        self.meta_storage.utime(path, atime, mtime)
+        meta_storage.utime(path, atime, mtime)
         return(0)
-
-    def utimens(self, path, ts_atime, ts_mtime):
-        """sets mtime and atime of file"""
-        self.logger.debug("PyDedupFS.utimens(%s, %s.%s, %s.%s)", path, ts_atime.tv_sec, ts_atime.tv_nsec, ts_mtime.tv_sec, ts_mtime.tv_nsec)
-        atime = ts_atime.tv_sec + (ts_atime.tv_nsec / 1000000.0)
-        mtime = ts_mtime.tv_sec + (ts_mtime.tv_nsec / 1000000.0)
-        self.meta_storage.utime(path, atime, mtime)
 
     def access(self, path, mode):
         """
@@ -196,8 +171,7 @@ class PyDedupFS(fuse.Fuse):
         -errno.EACCES if file is not accessible
         -errno.ENOENT if file does not exists or other error
         """
-        self.logger.debug("PyDedupFS.access(%s, mode=%s)", path, mode)
-        return(0)
+        self.logger.debug("PyDedupFS.access(%s, %s)", path, mode)
 
     def statfs(self):
         """
@@ -245,9 +219,77 @@ class PyDedupFS(fuse.Fuse):
             # The maximum file name length in the file system. Some file systems may return the maximum value that can be stored in an unsigned long to indicate the file system has no maximum file name length. The maximum value that can be stored in an unsigned long is defined in <limits.h> as ULONG_MAX.
 
     def fsinit(self):
-        """called after fs initialization"""
         self.logger.debug("PyDedupFS.fsinit()")
-        self.meta_storage = MetaStorage(root="/home/mesznera/pydedupfs")
+
+
+    class PyDedupFile(object):
+        """represents a deduplicted file"""
+
+        def __init__(self, path, flags, *mode):
+            self.logger = logging.getLogger(self.__class__.__name__)
+            self.logger.setLevel(logging.INFO)
+            self.logger.debug("PyDedupFile.__init__(%s, %s, %s)", path, flags, mode)
+            self.path = path
+            # TODO : are there other parameters to set
+            self.direct_io = False
+            self.keep_cache = False
+            # dirty flag
+            self.isdirty = False
+            # working on existing or new file
+            st = meta_storage.exists(self.path)
+            if st is False:
+                # creating new file
+                meta_storage.touch(self.path, mode)
+
+        def read(self, length, offset):
+            """
+            return data on success
+            return errno.EIO is something went wrong
+            """
+            self.logger.debug("PyDedupFile.read(%s, %s)", length, offset)
+            return(meta_storage.read(self.path, length, offset))
+
+        def write(self, buf, offset):
+            """
+            return len of written data
+            return errno.EACCES is File is not writeable
+            return errno.EIO if something went wrong
+            """
+            self.logger.debug("PyDedupFile.write(<buf>, %s)", offset)
+            self.isdirty = True
+            # write returns lenght of written data
+            return(meta_storage.write(self.path, buf))
+
+        def release(self, flags):
+            """
+            return 0 if all is OK
+            return errno.EIO if something went wrong
+            close file reference, no idea how to implement
+            for every open one release
+            NOT IMPLEMETED stub
+            """
+            self.logger.debug("PyDedupFile.release(%s)", flags)
+
+        def fsync(self, isfsyncfile):
+            """NOT Implemented stub"""
+            self.logger.debug("PyDedupFile.fsync(%s)", isfsyncfile)
+
+        def flush(self):
+            """close file, write remaining buffers if dirty"""
+            self.logger.debug("PyDedupFile.flush()")
+            if self.isdirty is True:
+                meta_storage.release(self.path)
+            else:
+                self.isdirty = False
+
+        def fgetattr(self):
+            """return st struct for file"""
+            self.logger.debug("PyDedupFile.fgetattr()")
+            return(meta_storage.exists(self.path))
+
+        def ftruncate(self, length):
+            """NOT Implemented stub"""
+            self.logger.debug("PyDedupFile.ftruncate(%s)", length)
 
     def main(self, *a, **kw):
         # enter endless loop
@@ -269,6 +311,8 @@ if __name__ == '__main__':
     # add option -f for foreground display an fuse for mountpoint
     # add --base as base directory for real data
     sys.argv = [sys.argv[0], "-f", "/home/mesznera/fuse"]
+    # global MetaStorage Object
+    meta_storage = MetaStorage(root="/home/mesznera/pydedupfs")
     profile = "PyDedupFS.profile"
     cProfile.runctx( "main()", globals(), locals(), filename=profile)
     s = pstats.Stats(profile)

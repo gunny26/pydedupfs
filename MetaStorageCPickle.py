@@ -91,7 +91,7 @@ class MetaStorage(object):
         self.conn = sqlite3.connect(os.path.join(db_path, "metastorage.db"))
         # TODO no journal and temporary store in memory
         # self.conn.execute("PRAGMA temp_store=MEMORY;")
-        self.conn.execute("PRAGMA journal_mode=WAL;")
+        # self.conn.execute("PRAGMA journal_mode=MEMORY;")
         # return dict not list
         self.conn.row_factory = sqlite3.Row
         # cur.execute("DROP TABLE IF EXISTS metastorage")
@@ -99,13 +99,13 @@ class MetaStorage(object):
         # vacuum table on statup
         self.conn.execute("VACUUM metastorage")
         # create root directory node, if not exists
-        try:
-            self.getattr("/")
-        except NoEntry:
+        if not self.exists("/"):
             self.mkdir("/")
+            self.logger.debug("created root node")
+        if not self.exists("/."):
             self.mkdir("/.")
+        if not self.exists("/.."):
             self.mkdir("/..")
-            self.logger.debug("created root nodes")
         # start statistics Thread
         self.threads = []
         self.threads.append(threading.Thread(target=self.do_statistics))
@@ -177,6 +177,18 @@ class MetaStorage(object):
         else:
             raise NoEntry("File %s not found" % abspath)
 
+    def __digest_to_path(self, digest):
+        """get path from digest"""
+        self.logger.debug("__digest_to_path(%s)", digest)
+        cur = self.conn.cursor()
+        cur.execute("SELECT abspath from metastorage where digest=?", (digest,))
+        row = cur.fetchone()
+        abspath = row["abspath"]
+        if abspath is not None:
+            return(abspath)
+        else:
+            raise NoEntry("Digest %s not found" % digest)
+           
     def read(self, abspath, length, offset):
         """get sequence type list of blocks for path if path exists"""
         self.logger.debug("MetaStorage.read(%s)", abspath)
@@ -206,11 +218,24 @@ class MetaStorage(object):
             buf = buf[:length] + "0x00"
         return(buf[:length])
 
-    def getattr(self, abspath):
-        """return stat of path if file exists or throws NoEntry"""
+    def exists(self, abspath):
+        """return stat of path if file exists"""
         self.logger.debug("MetaStorage.exists(%s)", abspath)
+        try:
+            st = self.__get_stat_by_abspath(abspath)
+            return(st)
+        except NoEntry:
+            return(False)
+
+    def isfile(self, abspath):
+        """true if entry is a file"""
+        self.logger.debug("MetaStorage.isfile(%s)", abspath)
         st = self.__get_stat_by_abspath(abspath)
-        return(st)
+        if st.mode & stat.S_IFREG :
+            return(True)
+        else:
+            return(False)
+        raise NoEntry("No such Entry")
 
     def utime(self, abspath, atime, mtime):
         """sets utimes in st structure"""
@@ -220,6 +245,17 @@ class MetaStorage(object):
         st.st_atime = atime
         self.__put_stat_by_abspath(st, abspath)
         
+
+    def isdir(self, abspath):
+        """true if entry is a directory"""
+        self.logger.debug("MetaStorage.isdir(%s)", abspath)
+        st = self.__get_stat_by_abspath(abspath)
+        if st.mode & stat.S_IFDIR :
+            return(True)
+        else:
+            return(False)
+        raise NoEntry("No such Entry")
+
     def readdir(self, abspath):
         """return list of files in parent"""
         self.logger.debug("MetaStorage.readdir(%s)", abspath)
@@ -234,10 +270,16 @@ class MetaStorage(object):
             direntries.append(row["abspath"].split("/")[-1].encode("utf-8"))
         return(direntries)
 
+    def __get_path_parent(self, abspath):
+        """returns filename and prent directory as string"""
+        basename = os.path.basename(abspath)
+        dirname = os.path.dirname(abspath)
+        return(basename, dirname)
+
     def create(self, abspath, mode=None):
         """add a new file in database, but no data to filestorage like touch"""
         self.logger.debug("MetaStorage.create(%s, %s)", abspath, mode)
-        dirname = os.path.dirname(abspath)
+        (basename, dirname) = self.__get_path_parent(abspath)
         st = StatDefaultFile()
         if mode is not None:
             st.mode = mode
@@ -247,7 +289,7 @@ class MetaStorage(object):
     def mkdir(self, abspath, mode=None):
         """add new directory to database"""
         self.logger.debug("MetaStorage.mkdir(%s, %s)", abspath, mode)
-        dirname = os.path.dirname(abspath)
+        (basename, dirname) = self.__get_path_parent(abspath)
         st = StatDefaultDir()
         if mode is not None:
             # set directory bit if not set
