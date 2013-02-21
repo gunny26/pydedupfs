@@ -27,6 +27,7 @@ import os
 import cPickle
 import time
 import logging
+import errno
 # for statistics and housekeeping threads
 import threading
 # own modules
@@ -54,11 +55,17 @@ class MetaStorage(object):
         if not os.path.isdir(db_path):
             os.mkdir(db_path)
         # there are files and directories,
-        # in files there is only cPickled information how to assemble
-        # real data
+        # in files there is only cPickled file information
+        # (digest, fuse.Stat)
         self.file_path = os.path.join(self.root, "files")
         if not os.path.isdir(self.file_path):
             os.mkdir(self.file_path)
+        # filedigest
+        # in this directory there are files with name digest of file
+        # these files hold cPickle list of blocks to assemble data
+        self.filedigest_path = os.path.join(self.root, "filesdigest")
+        if not os.path.isdir(self.filedigest_path):
+            os.mkdir(self.filedigest_path)       
         # holds blocks
         block_path = os.path.join(self.root, "blocks")
         if not os.path.isdir(block_path):
@@ -79,7 +86,7 @@ class MetaStorage(object):
     def do_statistics(self, interval=60):
         """statistics thread, writes to logger every 60s"""
         # TODO make interval a command line parameter
-        self.logger.error("Statistics Thread started")
+        self.logger.warning("Statistics Thread started")
         while True:
             self.logger.warning("BlockStorage Statistics Report")
             self.block_storage.report(self.logger.warning)
@@ -93,9 +100,12 @@ class MetaStorage(object):
         self.logger.debug("__to_realpath return %s", realpath)
         return(realpath)
 
-    def write(self, abspath, data):
+    def write(self, abspath, data, offset):
         """write data to file over write_buffer"""
         # write_buffer returns len(writen_data)
+        #if offset > 0:
+        #    self.logger.error("Append not Implemented yet")
+        #    return(-errno.ENOTSUP)
         return(self.write_buffer.add(data))
 
     def release(self, abspath):
@@ -108,12 +118,15 @@ class MetaStorage(object):
         # generate st struct
         st = StatDefaultFile()
         st.st_size = size
-        self.__put_entry(abspath, digest, st, sequence)
+        self.__put_entry(abspath, digest, st)
+        self.__put_sequence(digest, sequence)
 
     def read(self, abspath, length, offset):
         """get sequence type list of blocks for path if path exists"""
         self.logger.info("read(%s)", abspath)
-        (digest, st, sequence) = self.__get_entry(abspath)
+        # from file
+        (digest, st) = self.__get_entry(abspath)
+        sequence = self.__get_sequence(digest)
         if len(sequence) > 0:
             return(self.__read(sequence, length, offset))
         else:
@@ -143,7 +156,7 @@ class MetaStorage(object):
         self.logger.info("getattr(%s)", abspath)
         realpath = self.__to_realpath(abspath)
         if os.path.isfile(realpath) or os.path.islink(realpath):
-            (digest, st, sequence) = self.__get_entry(abspath)
+            (digest, st) = self.__get_entry(abspath)
             return(st)
         else:
             return(os.stat(realpath))
@@ -155,10 +168,10 @@ class MetaStorage(object):
         if os.path.isdir(realpath):
             os.utime(realpath, (atime, mtime))
         else:
-            (digest, st, sequence) = self.__get_entry(abspath)
+            (digest, st) = self.__get_entry(abspath)
             st.st_mtime = mtime
             st.st_atime = atime
-            self.__put_entry(abspath, digest, st, sequence)
+            self.__put_entry(abspath, digest, st)
         
     def readdir(self, abspath):
         """return list of files of directory"""
@@ -183,33 +196,55 @@ class MetaStorage(object):
         self.logger.info("mkdir(%s, %s)", abspath, mode)
         os.mkdir(self.__to_realpath(abspath), mode)
 
+    def __get_sequence(self, digest):
+        """return list of blockdigests to build data"""
+        self.logger.info("__get_sequence(%s)", digest)
+        cp_file = open(os.path.join(self.filedigest_path, digest), "rb")
+        sequence = cPickle.load(cp_file)
+        cp_file.close()
+        return(sequence)
+
     def __get_entry(self, abspath):
-        """returns full data row to abspath, or digest"""
+        """returns (digest, fuse.Stat) tuple of file abspath"""
         self.logger.debug("__get_entry(%s)", abspath)
         cp_file = file(self.__to_realpath(abspath),"rb")
-        (digest, st, sequence) = cPickle.load(cp_file)
+        (digest, st) = cPickle.load(cp_file)
         cp_file.close()
-        return((digest, st, sequence))
+        return((digest, st))
 
-    def __put_entry(self, abspath, digest, st, sequence):
+    def __put_sequence(self, digest, sequence):
+        """save list of blockdigests to build data into file"""
+        self.logger.info("__get_sequence(%s)", digest)
+        cp_file = open(os.path.join(self.filedigest_path, digest), "wb")
+        cPickle.dump(sequence, cp_file)
+        cp_file.close()
+
+    def __put_entry(self, abspath, digest, st, sequence=None):
         """write data to file"""
         self.logger.debug("__put_entry(%s, digest=%s, st=%s, <sequence>)", abspath, digest, st)
-        cp_file = file(self.__to_realpath(abspath), "wb")
-        cPickle.dump((digest, st, sequence), cp_file)
+        cp_file = open(self.__to_realpath(abspath), "wb")
+        cPickle.dump((digest, st), cp_file)
         cp_file.close()
-        # TODO remove verify if correct
-        (digest1, st1, sequence1) = self.__get_entry(abspath)
+        # TODO remove verify of digest and st
+        (digest1, st1) = self.__get_entry(abspath)
         assert digest == digest1
-        assert sequence == sequence
+        # save sequence
+        if (sequence is not None) and (len(sequence) > 0):
+            self.__put_sequence(digest, sequence)
+            # TODO remove verify of sequence
+            assert sequence == self.__get_sequence(digest)
 
     def unlink(self, abspath):
         """delete file from database"""
         self.logger.info("delete(%s)", abspath)
         # TODO critical sequence, what to delete first, and what if something went wrong
-        (digest, st, sequence) = self.__get_entry(abspath)
-        if sequence is not None or len(sequence) == 0:
-            # delete block in sequence
-            map(self.block_storage.delete, sequence)
+        (digest, st) = self.__get_entry(abspath)
+        if digest != 0:
+            # indirator of 0-byte file, nothing to delete
+            sequence = self.__get_sequence(digest)
+            if (sequence is not None) and (len(sequence) > 0):
+                # delete block in sequence
+                map(self.block_storage.delete, sequence)
         # finally delete file
         os.unlink(self.__to_realpath(abspath))
 
@@ -235,9 +270,10 @@ class MetaStorage(object):
         if os.path.isdir(realpath):
             os.chown(realpath, uid, gid)
         else:
-            (digest, st, sequence) = self.__get_entry(abspath)
+            (digest, st) = self.__get_entry(abspath)
             st.st_uid = uid
             st.st_gid = gid
+            self.__put_entry(abspath, digest, st)
 
     def chmod(self, abspath, mode):
         """change mode"""
@@ -246,6 +282,6 @@ class MetaStorage(object):
         if os.path.isdir(realpath):
             os.chmod(realpath, mode)
         else:
-            (digest, st, sequence) = self.__get_entry(abspath)
+            (digest, st) = self.__get_entry(abspath)
             st.st_mode = mode
-            self.__put_entry(abspath, digest, st, sequence)
+            self.__put_entry(abspath, digest, st)

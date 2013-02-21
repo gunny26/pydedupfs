@@ -55,7 +55,9 @@ class PyDedupFS(fuse.Fuse):
     def __init__(self, *args, **kw):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.debug("PyDedupFS.__init__(%s, %s)", args, kw)
-        # TODO : are there other parameters to set
+        # Set some fuse Options, regardless of command line options
+        # does not work with threads
+        self.multithreaded = False
         self.direct_io = False
         self.keep_cache = False
         self.fsname = "PyDedupFS"
@@ -276,8 +278,6 @@ class PyDedupFS(fuse.Fuse):
 
     def main(self, *a, **kw):
         # enter endless loop
-        print self.__dict__
-        print sys.argv[-1]
         return fuse.Fuse.main(self, *a, **kw)
 
 
@@ -298,8 +298,6 @@ def main():
         type="int", default=DEFAULT_BLOCKSIZE,
         help="Blocksize to use, default %default")
    
-    # does not work with threads
-    server.multithreaded = False
     server.parse(values=server, errex=1)
     server.main()
 

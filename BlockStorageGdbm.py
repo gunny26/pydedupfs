@@ -90,19 +90,6 @@ class BlockStorageGdbm(object):
             num_stored += int(self.db[key])
         string = ""
         outfunc("Blocks in block_storage : %s" % num_blocks)
-        outfunc("uncompressed blocks     : %s" % num_stored)
+        outfunc("de-dedupped blocks      : %s" % num_stored)
         if num_blocks > 0:
-                outfunc("savings in percent      : %0.2f" % (100 * float(num_stored) / float(num_blocks) - 1))
- 
-    def __str__(self):
-        """returns statistics dictionary"""
-        num_stored = 0
-        num_blocks = len(self.db)
-        for key in self.db.keys():
-            num_stored += int(self.db[key])
-        string = ""
-        string += "Blocks in block_storage : %s" % num_blocks
-        string += "uncompressed blocks     : %s" % num_stored
-        if num_blocks > 0:
-                string += "savings in percent      : %0.2f" % (100 * float(num_stored) / float(num_blocks) - 1)
-        return(string)
+                outfunc("Dedup Value         : %0.3f" % (float(num_stored) / float(num_blocks)))

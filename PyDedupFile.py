@@ -65,7 +65,7 @@ class PyDedupFile(object):
         self.logger.debug("PyDedupFile.write(<buf>, %s)", offset)
         self.isdirty = True
         # write returns lenght of written data
-        return(self.meta_storage.write(self.path, buf))
+        return(self.meta_storage.write(self.path, buf, offset))
 
     def release(self, flags):
         """
