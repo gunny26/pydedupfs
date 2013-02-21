@@ -23,7 +23,6 @@ __version__ = "$Revision$"
 __date__ = "$Date$"
 # $Id
 
-import time
 import logging
 
 
@@ -32,40 +31,55 @@ class WriteBuffer(object):
 
     def __init__(self, meta_storage, block_storage, blocksize, hashfunc):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.logger.setLevel(logging.ERROR)
         self.logger.debug("WriteBuffer.__init__()")
         self.blocksize = blocksize
+        # hashfunc has to be use like hashlib.sha1
         self.hashfunc = hashfunc
         self.meta_storage = meta_storage
         self.block_storage = block_storage
+        # initialize some variables, they are filled in __reinit
+        # look in __reninit for comments
+        self.buf = None
+        self.bytecounter = None
+        self.filehash = None
+        self.deduphash = None
+        self.sequence = None
+        # set values to start first block
         self.__reinit()
 
     def flush(self):
-        """write self.buf to block_storage"""
+        """
+        write self.buf to block_storage,
+        maximum length is blocksize,
+        but block can already be smaller
+        """
         self.logger.debug("WriteBuffer.flush()")
         # flush self.buf
         # blocklevel hash
         blockhash = self.hashfunc()
         blockhash.update(self.buf)
-        # filelevel hash
+        blockhexhash = blockhash.hexdigest()
+        # filelevel hash, runs through hole file, with update()
         self.filehash.update(self.buf)
         self.bytecounter += len(self.buf)
-        # dedup
-        if self.deduphash.has_key(blockhash.hexdigest()):
-            self.deduphash[blockhash.hexdigest()] += 1
+        # put digest in dict
+        if self.deduphash.has_key(blockhexhash):
+            self.deduphash[blockhexhash] += 1
         else:
-            self.deduphash[blockhash.hexdigest()] =1
-            # store
-            self.block_storage.put(self.buf, blockhash.hexdigest())
-        # store in sequence of blocks
-        self.sequence.append(blockhash.hexdigest())
+            self.deduphash[blockhexhash] = 1
+            # store block on disk
+            self.block_storage.put(self.buf, blockhexhash)
+        # add blockhexdigest to sequence of blocks of file
+        self.sequence.append(blockhexhash)
 
     def add(self, data):
         """adds data to buffer and flushes if length > blocksize"""
         # self.logger.debug("WriteBuffer.add(<buf>)")
-        if (len(self.buf) + len(data)) >= self.blocksize:
+        l_data = len(data)
+        l_buf = len(self.buf)
+        if (l_buf + l_data) >= self.blocksize:
             # add only remaining bytes to internal buffer
-            self.buf += data[:self.blocksize-len(self.buf)]
+            self.buf += data[:self.blocksize-l_buf]
             # self.logger.debug("Buffer flush")
             # assert len(self.buf) == self.blocksize
             self.flush()
@@ -75,18 +89,16 @@ class WriteBuffer(object):
             # self.logger.debug("Adding buffer")
             # assert len(self.buf) < self.blocksize
             self.buf += data
-        return(len(data))
+        return(l_data)
 
     def __reinit(self):
-        """set some coutners to zero"""
+        """set some counters to initial values"""
         self.logger.debug("WriteBuffer.__reinit()")
         self.buf = ""
         # counting bytes = len
         self.bytecounter = 0
         # hash for whole file
         self.filehash = self.hashfunc()
-        # starttime
-        self.starttime = time.time()
         # deduphash
         self.deduphash = {}
         # sequence of blocks
@@ -96,12 +108,7 @@ class WriteBuffer(object):
         """write remaining data, and closes file"""
         self.logger.debug("WriteBuffer.release()")
         if len(self.buf) != 0:
-            self.logger.debug("adding remaining data")
             self.flush()
-        self.logger.debug("File was %d bytes long", self.bytecounter)
-        duration = time.time() - self.starttime
-        self.logger.debug("Duration %s seconds", duration)
-        self.logger.debug("Speed %0.2f B/s", self.bytecounter / duration)
         # write meta information
         # save informations for return
         filehash = self.filehash.hexdigest()

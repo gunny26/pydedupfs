@@ -51,14 +51,18 @@ class BlockStorageGdbm(object):
         else:
             # write if this is the first block
             self.logger.debug("BlockStorage.put: new block")
-            open(filename, "wb").write(buf)
+            wfile = open(filename, "wb")
+            wfile.write(buf)
+            wfile.close()
             self.db[digest] = "1"
 
     def get(self, digest):
         """reads data from filename <hexdigest>"""
         self.logger.debug("BlockStorage.get(digest=%s)" , digest)
-        filename = os.path.join(self.block_path, digest)
-        return(open(filename, "rb").read())
+        rfile = open(os.path.join(self.block_path, digest), "rb")
+        data = rfile.read()
+        rfile.close()
+        return(data)
 
     def exists(self, digest):
         """true if file exists"""
@@ -78,6 +82,18 @@ class BlockStorageGdbm(object):
                 # reference counter down by one
                 self.db[digest] = str(int(self.db[digest]) -1)
 
+    def report(self, outfunc):
+        """prints report with outfunc"""
+        num_stored = 0
+        num_blocks = len(self.db)
+        for key in self.db.keys():
+            num_stored += int(self.db[key])
+        string = ""
+        outfunc("Blocks in block_storage : %s" % num_blocks)
+        outfunc("uncompressed blocks     : %s" % num_stored)
+        if num_blocks > 0:
+                outfunc("savings in percent      : %0.2f" % (100 * float(num_stored) / float(num_blocks) - 1))
+ 
     def __str__(self):
         """returns statistics dictionary"""
         num_stored = 0

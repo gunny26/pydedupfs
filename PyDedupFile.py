@@ -23,42 +23,37 @@ __version__ = "$Revision$"
 __date__ = "$Date$"
 # $Id
 
-import errno
 # Logging
 import logging
-# own modules
-from PyDedupFSExceptions import *
+
 
 class PyDedupFile(object):
-    """represents a deduplicted file"""
+    """Fuse File Interface"""
 
     def __init__(self, meta_storage, path, flags, *mode):
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.debug("PyDedupFile.__init__(%s, %s, %s)", path, flags, mode)
+        """called to open file"""
+        # use explicit Logger Naming, because this class is wrapped
+        # so __class__.__name__ would be not PyDedupFile
+        self.logger = logging.getLogger("PyDedupFile")
+        self.logger.info("PyDedupFile.__init__(%s, %s, %s)", path, flags, mode)
         self.path = path
         self.mode = mode
         self.flags = flags
         self.meta_storage = meta_storage
-
         # TODO : are there other parameters to set
         self.direct_io = False
         self.keep_cache = False
-        # dirty flag
+        # dirty flag, used in release()
         self.isdirty = False
-        # working on existing or new file
-        try:
-            st = self.meta_storage.getattr(self.path)
-        except NoEntry:
-            # creating new file
-            self.meta_storage.create(self.path, mode)
+        # touch file, it has to exist after __init__
+        self.meta_storage.create(self.path)
 
     def read(self, length, offset):
         """
         return data on success
         return errno.EIO is something went wrong
         """
-        # self.logger.debug("PyDedupFile.read(%s, %s)", length, offset)
+        self.logger.debug("PyDedupFile.read(%s, %s)", length, offset)
         return(self.meta_storage.read(self.path, length, offset))
 
     def write(self, buf, offset):
@@ -67,7 +62,7 @@ class PyDedupFile(object):
         return errno.EACCES is File is not writeable
         return errno.EIO if something went wrong
         """
-        # self.logger.debug("PyDedupFile.write(<buf>, %s)", offset)
+        self.logger.debug("PyDedupFile.write(<buf>, %s)", offset)
         self.isdirty = True
         # write returns lenght of written data
         return(self.meta_storage.write(self.path, buf))
@@ -80,24 +75,24 @@ class PyDedupFile(object):
         for every open one release
         NOT IMPLEMETED stub
         """
-        self.logger.debug("PyDedupFile.release(%s)", flags)
+        self.logger.info("PyDedupFile.release(%s)", flags)
 
     def fsync(self, isfsyncfile):
-        """NOT Implemented stub"""
-        self.logger.debug("PyDedupFile.fsync(%s)", isfsyncfile)
+        """NOT Implemented stub, is it necessary"""
+        self.logger.info("PyDedupFile.fsync(%s)", isfsyncfile)
 
     def flush(self):
         """close file, write remaining buffers if dirty"""
-        self.logger.debug("PyDedupFile.flush()")
+        self.logger.info("PyDedupFile.flush()")
         if self.isdirty is True:
             self.meta_storage.release(self.path)
             self.isdirty = False
 
     def fgetattr(self):
         """return st struct for file"""
-        self.logger.debug("PyDedupFile.fgetattr()")
+        self.logger.info("PyDedupFile.fgetattr()")
         return(self.meta_storage.getattr(self.path))
 
     def ftruncate(self, length):
         """NOT Implemented stub"""
-        self.logger.debug("PyDedupFile.ftruncate(%s)", length)
+        self.logger.info("PyDedupFile.ftruncate(%s)", length)
