@@ -1,11 +1,11 @@
-pydedupfs
+PyDedupFS
 =========
 
-python-fuse deduplication filesystem
+python and fuse based deduplication filesystem
 
 A simple deduplicating fuse based filesystem with very limited memory requirements.
 
-This version is for beta production
+This version is for beta production.
 
 Requirements:
 - fuse
@@ -39,7 +39,7 @@ The reference counter is necessary for delete operations,
 to delete only unused blocks, and to find existing blocks.
 
 
-Diffent to other deduplicating Filesystems:
+Diffences to other deduplicating Filesystems:
 
 - does not use huge amounts of memory
 
@@ -50,26 +50,26 @@ Diffent to other deduplicating Filesystems:
   filesystem structure in a RDBMS -> it will be slower in the most cases.
   ( tested in experimental branch )
 
-- does not use a database for block storage as blob
+- does not use a database for block storage in blobs
   filesystems can store data better than databases
   database overhead is significant
   ( tested in experimental branch )
 
 - disk based block digest dictionary, based on gdbm
-  it is robust and standard
+  it is robust and standard, and uses minimal memory
 
 
 Architecure:
 
-PyDeduFS creates 3 Directories under <BASE>
+PyDeduFS creates 3 Directories under BASE (option --base)
 
-- <BASE>/meta
+- BASE/meta
   In this directory the gdbm database for block digest and reference counter is stored
 
-- <BASE>/files
+- BASE/files
   Original files filled with assemling information
 
-- <BASE>/blocks
+- BASE/blocks
   blocks of data with hexdigest as name
 
 
@@ -98,21 +98,22 @@ Download via github
 
 PyDeduFs.py --base=<Path to real data> <fuse Options> <Mountpoint>
 
-So PyDedupFs will go in background and will log to /tmp/pydedupfs.log
+PyDedupFs will go in background and default will log to /tmp/pydedupfs.log
 
 Non Fuse options:
 
 --base = base directory to store real data
 --hashfunc = hashing function of hashlib to use ( sha1, md5, sha256 ... ), default "sha1"
-             dont change this after first use of filesystem !
+             ! dont change this after first use of filesystem !
 --blocksize = blocksize to split data in, default 128k
+             ! dont change this after first use of filesystem !
 
 Fuse options set in program:
 
-multipathin off
-direct-io off
+multipathing off
+direct_io off
 
-Loggin:
+Logging:
 
 logging can be adjusted in logging.conf
 
