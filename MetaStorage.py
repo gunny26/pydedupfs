@@ -63,7 +63,7 @@ class MetaStorage(object):
         # filedigest
         # in this directory there are files with name digest of file
         # these files hold cPickle list of blocks to assemble data
-        self.filedigest_path = os.path.join(self.root, "filesdigest")
+        self.filedigest_path = os.path.join(self.root, "filedigest")
         if not os.path.isdir(self.filedigest_path):
             os.mkdir(self.filedigest_path)       
         # holds blocks
@@ -200,9 +200,9 @@ class MetaStorage(object):
         """return list of blockdigests to build data"""
         self.logger.info("__get_sequence(%s)", digest)
         cp_file = open(os.path.join(self.filedigest_path, digest), "rb")
-        sequence = cPickle.load(cp_file)
+        (nref, sequence) = cPickle.load(cp_file)
         cp_file.close()
-        return(sequence)
+        return((nref, sequence))
 
     def __get_entry(self, abspath):
         """returns (digest, fuse.Stat) tuple of file abspath"""
@@ -214,10 +214,42 @@ class MetaStorage(object):
 
     def __put_sequence(self, digest, sequence):
         """save list of blockdigests to build data into file"""
-        self.logger.info("__get_sequence(%s)", digest)
-        cp_file = open(os.path.join(self.filedigest_path, digest), "wb")
-        cPickle.dump(sequence, cp_file)
-        cp_file.close()
+        self.logger.info("__put_sequence(%s)", digest)
+        filename = os.path.join(self.filedigest_path, digest)
+        if os.path.isfile(filename):
+            # this sequence already exists, this is a duplicate file
+            (nref, sequence) = self.__get_sequence(digest)
+            nref += 1
+            cp_file = open(filename, "wb")
+            cPickle.dump((nref, sequence), cp_file)
+            cp_file.close()
+        else:
+            # this is a new file
+            cp_file = open(filename, "wb")
+            cPickle.dump((1, sequence), cp_file)
+            cp_file.close()
+
+    def __delete_sequence(self, digest):
+        """
+        deletes sequence information, if no more references
+        and calles block_storage.delete() for each block in 
+        sequence
+        """
+        self.logger.info("__delete_sequence(%s)", digest)
+        filename = os.path.join(self.filedigest_path, digest)
+        if os.path.isfile(filename):
+            cp_file = open(filename, "wb")
+            # should exist
+            (nref, sequence) = self.__get_sequence(digest)
+            if nref == 1: 
+                self.logger.debug("last reference, unlink file %s", filename)
+                if (sequence is not None) and (len(sequence) > 0):
+                    # last reference, so also delete blocks
+                    map(self.block_storage.delete, sequence)
+                os.unlink(filename)
+        else:
+            self.logger.error("file %s should exist", filename)
+        
 
     def __put_entry(self, abspath, digest, st, sequence=None):
         """write data to file"""
@@ -228,8 +260,8 @@ class MetaStorage(object):
         # TODO remove verify of digest and st
         (digest1, st1) = self.__get_entry(abspath)
         assert digest == digest1
-        # save sequence
-        if (sequence is not None) and (len(sequence) > 0):
+        # save sequence, if no zero byte file
+        if (digest != 0) and (sequence is not None) and (len(sequence) > 0):
             self.__put_sequence(digest, sequence)
             # TODO remove verify of sequence
             assert sequence == self.__get_sequence(digest)
@@ -241,10 +273,7 @@ class MetaStorage(object):
         (digest, st) = self.__get_entry(abspath)
         if digest != 0:
             # indirator of 0-byte file, nothing to delete
-            sequence = self.__get_sequence(digest)
-            if (sequence is not None) and (len(sequence) > 0):
-                # delete block in sequence
-                map(self.block_storage.delete, sequence)
+            self.__delete_sequence(digest)
         # finally delete file
         os.unlink(self.__to_realpath(abspath))
 
