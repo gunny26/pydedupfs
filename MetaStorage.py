@@ -24,37 +24,14 @@ __date__ = "$Date$"
 # $Id
 
 import os
-# import stat
 import cPickle
 import time
-#import hashlib
 import logging
 # for statistics and housekeeping threads
 import threading
 # own modules
-# from PyDedupFSExceptions import *
 from WriteBuffer import WriteBuffer as WriteBuffer
-
-# import any kind of BlockStorage, but they are not compatible,
-# so do not change after you have added files
-# SQLite base Version - slow !
-# from BlockStorageSqlite import BlockStorageSqlite as BlockStorage
-# GDBM based version - fastest
 from BlockStorageGdbm import BlockStorageGdbm as BlockStorage
-# GDBM with Encrypting
-# from BlockStorageGdbmEnc import BlockStorageGdbmEnc as BlockStorage
-# GDBM and Zlib Compression
-# from BlockStorageGdbm import BlockStorageGdbm as BlockStorage
-
-# import one type of FileStorage
-# original version, also sqlite but not tuned
-# from FileStorage import FileStorage as FileStorage
-# tuned sqlite version
-# from FileStorageSqlite import FileStorageSqlite as FileStorage
-# gdbm version
-# from FileStorageGdbm import FileStorageGdbm as FileStorage
-
-# from StatDefaultDir import StatDefaultDir as StatDefaultDir
 from StatDefaultFile import StatDefaultFile as StatDefaultFile
 
 

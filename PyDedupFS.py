@@ -130,13 +130,6 @@ class PyDedupFS(fuse.Fuse):
         NOT IMPLEMENTED, conecpt of symlinks is realy hard to implement in concep of PyDedupFS
         """
         self.logger.debug("PyDedupFS.symlink(%s, %s)", path, symlink)
-        # path is the real existing file
-        # given relative to fuse mountpoint
-        #relpath = os.path.relpath(path, self.mountpoint)
-        #self.logger.debug("corrected relpath:%s", os.path.relpath(path, self.mountpoint))
-        #self.logger.debug("corrected absolute path:%s", os.path.normpath(os.path.join(self.mountpoint, relpath)))
-        #self.logger.debug("corrected absolute path:%s", os.path.normpath(os.path.join(self.mountpoint, path)))
-        #self.meta_storage.symlink(path, symlink)
         return(None)
 
     def rename(self, path, path1):
@@ -281,13 +274,6 @@ class PyDedupFS(fuse.Fuse):
         # initialize meta_storage properly
         self.meta_storage = MetaStorage(self.base, self.blocksize, self.hashfunc)
 
-        # wrapper to own file class, to pass meta_storage object
-        #class wrapped_file_class(PyDedupFile):
-        #    def __init__(self2, *a, **kw):
-        #        PyDedupFile.__init__(self2, self.meta_storage, *a, **kw)
-        # set own file class
-        #self.file_class = wrapped_file_class
-
     def main(self, *a, **kw):
         # enter endless loop
         print self.__dict__
@@ -319,10 +305,6 @@ def main():
 
 
 if __name__ == '__main__':
-    # add option -f for foreground display an fuse for mountpoint
-    # add --base as base directory for real data
-    # sys.argv = [sys.argv[0], "-f", "--hashfunc=sha1", "--base=/home/mesznera/pydedupfs", "/home/mesznera/fuse"]
-    # TODO: make Profiling a command line switch
     if "--profile" in sys.argv:
         # Profiling
         # dont pass this option to fuse
