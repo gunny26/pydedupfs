@@ -32,7 +32,8 @@ import errno
 import threading
 # own modules
 from WriteBuffer import WriteBuffer as WriteBuffer
-from BlockStorageGdbm import BlockStorageGdbm as BlockStorage
+# from BlockStorageGdbm import BlockStorageGdbm as BlockStorage
+from BlockStorageFile import BlockStorageFile as BlockStorage
 from StatDefaultFile import StatDefaultFile as StatDefaultFile
 
 
@@ -126,7 +127,8 @@ class MetaStorage(object):
         self.logger.info("read(%s)", abspath)
         # from file
         (digest, st) = self.__get_entry(abspath)
-        sequence = self.__get_sequence(digest)
+        nref, sequence = self.__get_sequence(digest)
+        self.logger.debug("Found sequence with length %s", len(sequence))
         if len(sequence) > 0:
             return(self.__read(sequence, length, offset))
         else:
@@ -261,6 +263,7 @@ class MetaStorage(object):
         (digest1, st1) = self.__get_entry(abspath)
         assert digest == digest1
         # save sequence, if no zero byte file
+        # TODO there is something wrong
         if (digest != 0) and (sequence is not None) and (len(sequence) > 0):
             self.__put_sequence(digest, sequence)
             # TODO remove verify of sequence
