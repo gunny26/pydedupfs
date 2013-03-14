@@ -62,10 +62,16 @@ class PyDedupFile(object):
         return errno.EACCES is File is not writeable
         return errno.EIO if something went wrong
         """
-        self.logger.debug("PyDedupFile.write(<buf>, %s)", offset)
+        self.logger.info("PyDedupFile.write(<buf>, %s)", offset)
         self.isdirty = True
         # write returns lenght of written data
-        return(self.meta_storage.write(self.path, buf, offset))
+        try:
+            len_buf = self.meta_storage.write(self.path, buf, offset)
+            self.logger.debug("Wrote %d bytes", len_buf)
+            return(len_buf)
+        except StandardError, exc:
+            self.logger.exception(exc)
+            raise exc
 
     def release(self, flags):
         """
@@ -84,9 +90,12 @@ class PyDedupFile(object):
     def flush(self):
         """close file, write remaining buffers if dirty"""
         self.logger.info("PyDedupFile.flush()")
-        if self.isdirty is True:
-            self.meta_storage.release(self.path)
-            self.isdirty = False
+        try:
+            if self.isdirty is True:
+                self.meta_storage.release(self.path)
+                self.isdirty = False
+        except StandardError, exc:
+            self.logger.exception(exc)
 
     def fgetattr(self):
         """return st struct for file"""

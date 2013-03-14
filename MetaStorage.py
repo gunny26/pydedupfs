@@ -119,8 +119,11 @@ class MetaStorage(object):
         # generate st struct
         st = StatDefaultFile()
         st.st_size = size
+        # TODO: what about not fully written data in either of these two methods
+        # think about rollback function
         self.__put_entry(abspath, digest, st)
         self.__put_sequence(digest, sequence)
+            
 
     def read(self, abspath, length, offset):
         """get sequence type list of blocks for path if path exists"""

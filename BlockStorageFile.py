@@ -47,7 +47,7 @@ class BlockStorageFile(object):
             # reference counter up by one
             nref = int(open(ifo_filename).read()) + 1
             # write it back
-            open(ifo_filename).write(str(nref))
+            open(ifo_filename, "wb").write(str(nref))
         else:
             # block is written the first time
             self.logger.debug("BlockStorage.put: new block")
