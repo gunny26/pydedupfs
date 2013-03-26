@@ -29,11 +29,15 @@ import time
 import logging
 import errno
 # for statistics and housekeeping threads
-import threading
+# import threading
 # own modules
 from WriteBuffer import WriteBuffer as WriteBuffer
 # from BlockStorageGdbm import BlockStorageGdbm as BlockStorage
-from BlockStorageFile import BlockStorageFile as BlockStorage
+# from BlockStorageFile import BlockStorageFile as BlockStorage
+# Tokyo Cabinet Reference Counter Version
+from BlockStorageTokyoCabinet import BlockStorageTokyoCabinet as BlockStorage
+# Tokyo Cabinet Reference Counter and blockstorage version
+# from BlockStorageTokyoCabinet2 import BlockStorageTokyoCabinet2 as BlockStorage
 from StatDefaultFile import StatDefaultFile as StatDefaultFile
 
 
@@ -42,9 +46,9 @@ class MetaStorage(object):
 
     def __init__(self, root, blocksize, hashfunc):
         """just __init__"""
-        self.logger = logging.getLogger(self.__class__.__name__)
         self.blocksize = blocksize
         self.hashfunc = hashfunc
+        logging.debug("__init__(%s, %s, %s)", root, blocksize, hashfunc)
 
         # create root if it doesnt exist
         self.root = root
@@ -77,35 +81,35 @@ class MetaStorage(object):
         self.write_buffer = WriteBuffer(self, self.block_storage, blocksize, hashfunc)
 
         # start statistics Thread
-        self.threads = []
-        self.threads.append(threading.Thread(target=self.do_statistics))
-        for thread in self.threads:
-            # set to daemon thread, so main thread can exit
-            thread.setDaemon(True)
-            thread.start()
+        #self.threads = []
+        #self.threads.append(threading.Thread(target=self.do_statistics))
+        #for thread in self.threads:
+        #    # set to daemon thread, so main thread can exit
+        #    thread.setDaemon(True)
+        #    thread.start()
 
-    def do_statistics(self, interval=60):
-        """statistics thread, writes to logger every 60s"""
-        # TODO make interval a command line parameter
-        self.logger.warning("Statistics Thread started")
-        while True:
-            self.logger.warning("BlockStorage Statistics Report")
-            self.block_storage.report(self.logger.warning)
-            time.sleep(interval)
+#    def do_statistics(self, interval=60):
+#        """statistics thread, writes to logger every 60s"""
+#        # TODO make interval a command line parameter
+#        logging.warning("Statistics Thread started")
+#        while True:
+#            logging.warning("BlockStorage Statistics Report")
+#            self.block_storage.report(logging.warning)
+#            time.sleep(interval)
       
     def __to_realpath(self, abspath):
         """from abspath with leading / to relative pathnames
         and join it with file_base path"""
-        self.logger.debug("__to_realpath(%s)", abspath)
+        logging.debug("__to_realpath(%s)", abspath)
         realpath = os.path.join(self.file_path, abspath[1:])
-        self.logger.debug("__to_realpath return %s", realpath)
+        logging.debug("__to_realpath return %s", realpath)
         return(realpath)
 
     def write(self, abspath, data, offset):
         """write data to file over write_buffer"""
         # write_buffer returns len(writen_data)
         #if offset > 0:
-        #    self.logger.error("Append not Implemented yet")
+        #    logging.error("Append not Implemented yet")
         #    return(-errno.ENOTSUP)
         return(self.write_buffer.add(data))
 
@@ -127,11 +131,11 @@ class MetaStorage(object):
 
     def read(self, abspath, length, offset):
         """get sequence type list of blocks for path if path exists"""
-        self.logger.info("read(%s)", abspath)
+        logging.info("read(%s)", abspath)
         # from file
         (digest, st) = self.__get_entry(abspath)
         nref, sequence = self.__get_sequence(digest)
-        self.logger.debug("Found sequence with length %s", len(sequence))
+        logging.debug("Found sequence with length %s", len(sequence))
         if len(sequence) > 0:
             return(self.__read(sequence, length, offset))
         else:
@@ -143,7 +147,7 @@ class MetaStorage(object):
         start = offset % self.blocksize
         buf = ""
         while (len(buf) < length) and (index < len(sequence)):
-            self.logger.debug("index : %d, start %d", index, start)
+            logging.debug("index : %d, start %d", index, start)
             if start > 0:
                 buf += self.block_storage.get(sequence[index])[start:]
                 start = 0
@@ -151,14 +155,14 @@ class MetaStorage(object):
                 buf += self.block_storage.get(sequence[index])
             index += 1
         if len(buf) > length:
-            self.logger.debug("Buffer will be shortened to %d", length)
+            logging.debug("Buffer will be shortened to %d", length)
             # append EOF
             buf = buf[:length] + "0x00"
         return(buf[:length])
 
     def getattr(self, abspath):
         """return stat of path if file exists"""
-        self.logger.info("getattr(%s)", abspath)
+        logging.info("getattr(%s)", abspath)
         realpath = self.__to_realpath(abspath)
         if os.path.isfile(realpath) or os.path.islink(realpath):
             (digest, st) = self.__get_entry(abspath)
@@ -168,7 +172,7 @@ class MetaStorage(object):
 
     def utime(self, abspath, atime, mtime):
         """sets utimes in st structure"""
-        self.logger.info("utime(abspath=%s, atime=%s, mtime=%s)", abspath, atime, mtime)
+        logging.info("utime(abspath=%s, atime=%s, mtime=%s)", abspath, atime, mtime)
         realpath = self.__to_realpath(abspath)
         if os.path.isdir(realpath):
             os.utime(realpath, (atime, mtime))
@@ -180,12 +184,12 @@ class MetaStorage(object):
         
     def readdir(self, abspath):
         """return list of files of directory"""
-        self.logger.info("readdir(%s)", abspath)
+        logging.info("readdir(%s)", abspath)
         return(os.listdir(self.__to_realpath(abspath)))
 
     def create(self, abspath, mode=None):
         """like touch, create 0-byte if not exists"""
-        self.logger.info("create(%s, %s)", abspath, mode)
+        logging.info("create(%s, %s)", abspath, mode)
         if os.path.exists(self.__to_realpath(abspath)):
             # fail silently if file exists
             return
@@ -198,12 +202,12 @@ class MetaStorage(object):
 
     def mkdir(self, abspath, mode=None):
         """add new directory to database"""
-        self.logger.info("mkdir(%s, %s)", abspath, mode)
+        logging.info("mkdir(%s, %s)", abspath, mode)
         os.mkdir(self.__to_realpath(abspath), mode)
 
     def __get_sequence(self, digest):
         """return list of blockdigests to build data"""
-        self.logger.info("__get_sequence(%s)", digest)
+        logging.info("__get_sequence(%s)", digest)
         cp_file = open(os.path.join(self.filedigest_path, digest), "rb")
         (nref, sequence) = cPickle.load(cp_file)
         cp_file.close()
@@ -211,7 +215,7 @@ class MetaStorage(object):
 
     def __get_entry(self, abspath):
         """returns (digest, fuse.Stat) tuple of file abspath"""
-        self.logger.debug("__get_entry(%s)", abspath)
+        logging.debug("__get_entry(%s)", abspath)
         cp_file = file(self.__to_realpath(abspath),"rb")
         (digest, st) = cPickle.load(cp_file)
         cp_file.close()
@@ -219,7 +223,7 @@ class MetaStorage(object):
 
     def __put_sequence(self, digest, sequence):
         """save list of blockdigests to build data into file"""
-        self.logger.info("__put_sequence(%s)", digest)
+        logging.info("__put_sequence(%s)", digest)
         filename = os.path.join(self.filedigest_path, digest)
         if os.path.isfile(filename):
             # this sequence already exists, this is a duplicate file
@@ -240,25 +244,25 @@ class MetaStorage(object):
         and calles block_storage.delete() for each block in 
         sequence
         """
-        self.logger.info("__delete_sequence(%s)", digest)
+        logging.info("__delete_sequence(%s)", digest)
         filename = os.path.join(self.filedigest_path, digest)
         if os.path.isfile(filename):
             cp_file = open(filename, "wb")
             # should exist
             (nref, sequence) = self.__get_sequence(digest)
             if nref == 1: 
-                self.logger.debug("last reference, unlink file %s", filename)
+                logging.debug("last reference, unlink file %s", filename)
                 if (sequence is not None) and (len(sequence) > 0):
                     # last reference, so also delete blocks
                     map(self.block_storage.delete, sequence)
                 os.unlink(filename)
         else:
-            self.logger.error("file %s should exist", filename)
+            logging.error("file %s should exist", filename)
         
 
     def __put_entry(self, abspath, digest, st, sequence=None):
         """write data to file"""
-        self.logger.debug("__put_entry(%s, digest=%s, st=%s, <sequence>)", abspath, digest, st)
+        logging.debug("__put_entry(%s, digest=%s, st=%s, <sequence>)", abspath, digest, st)
         cp_file = open(self.__to_realpath(abspath), "wb")
         cPickle.dump((digest, st), cp_file)
         cp_file.close()
@@ -274,7 +278,7 @@ class MetaStorage(object):
 
     def unlink(self, abspath):
         """delete file from database"""
-        self.logger.info("delete(%s)", abspath)
+        logging.info("delete(%s)", abspath)
         # TODO critical sequence, what to delete first, and what if something went wrong
         (digest, st) = self.__get_entry(abspath)
         if digest != 0:
@@ -290,17 +294,17 @@ class MetaStorage(object):
 
     def rename(self, abspath, abspath1):
         """rename entry"""
-        self.logger.info("rename(%s, %s)", abspath, abspath1)
+        logging.info("rename(%s, %s)", abspath, abspath1)
         os.rename(self.__to_realpath(abspath), self.__to_realpath(abspath1))
 
     def copy(self, abspath, abspath1):
         """copy file, not blocks, imitates hardlink"""
-        self.logger.info("copy(%s, %s)", abspath, abspath1)
+        logging.info("copy(%s, %s)", abspath, abspath1)
         shutil.copy(self.__to_realpath(abspath), self.__to_relapath(abspath1))
 
     def chown(self, abspath, uid, gid):
         """change ownership information"""
-        self.logger.info("chown(%s, %s, %s)", abspath, uid, gid)
+        logging.info("chown(%s, %s, %s)", abspath, uid, gid)
         realpath = self.__to_realpath(abspath)
         if os.path.isdir(realpath):
             os.chown(realpath, uid, gid)
@@ -312,7 +316,7 @@ class MetaStorage(object):
 
     def chmod(self, abspath, mode):
         """change mode"""
-        self.logger.info("chmod(%s, %s)", abspath, mode)
+        logging.info("chmod(%s, %s)", abspath, mode)
         realpath = self.__to_realpath(abspath)
         if os.path.isdir(realpath):
             os.chmod(realpath, mode)

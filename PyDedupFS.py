@@ -53,8 +53,7 @@ class PyDedupFS(fuse.Fuse):
     """Fuse Interface Class"""
 
     def __init__(self, *args, **kw):
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.logger.debug("PyDedupFS.__init__(%s, %s)", args, kw)
+        logging.debug("PyDedupFS.__init__(%s, %s)", args, kw)
         # Set some fuse Options, regardless of command line options
         # does not work with threads
         self.multithreaded = False
@@ -88,7 +87,7 @@ class PyDedupFS(fuse.Fuse):
         return stat information
         return errno.ENOENT if File does not exist
         """
-        self.logger.debug("PyDedupFS.getattr(%s)", path)
+        logging.debug("PyDedupFS.getattr(%s)", path)
         return(self.meta_storage.getattr(path))
 
     def readlink(self, path):
@@ -96,7 +95,7 @@ class PyDedupFS(fuse.Fuse):
         return path to which link is pointing to
         NOT IMPLEMENTED : it doesnt make sense on this type of filesystem
         """
-        self.logger.debug("PyDedupFS.readlink(%s)", path)
+        logging.debug("PyDedupFS.readlink(%s)", path)
         return(None)
 
     def readdir(self, path, offset):
@@ -104,25 +103,25 @@ class PyDedupFS(fuse.Fuse):
         yield fuse.Direntry(str(name of file), inode)
         prepend . and .. entries
         """
-        self.logger.debug("PyDedupFS.readdir(%s, offset=%s)", path, offset)
+        logging.debug("PyDedupFS.readdir(%s, offset=%s)", path, offset)
         for entry in self.meta_storage.readdir(path):
             yield fuse.Direntry(entry)
 
     def unlink(self, path):
         """unlink file"""
-        self.logger.debug("PyDedupFS.unlink(%s)", path)
+        logging.debug("PyDedupFS.unlink(%s)", path)
         self.meta_storage.unlink(path)
         return(0)
 
     def rmdir(self, path):
         """remove directory"""
-        self.logger.debug("PyDedupFS.rmdir(%s)", path)
+        logging.debug("PyDedupFS.rmdir(%s)", path)
         self.meta_storage.rmdir(path)
         return(0)
 
     def truncate(self, path, offset):
         """change the size of a file"""
-        self.logger.debug("PyDedupFS.truncate(%s, offset=%s)", path, offset)
+        logging.debug("PyDedupFS.truncate(%s, offset=%s)", path, offset)
 
     def symlink(self, path, symlink):
         """
@@ -131,7 +130,7 @@ class PyDedupFS(fuse.Fuse):
         path is no absolute path, relative to actual position
         NOT IMPLEMENTED, conecpt of symlinks is realy hard to implement in concep of PyDedupFS
         """
-        self.logger.debug("PyDedupFS.symlink(%s, %s)", path, symlink)
+        logging.debug("PyDedupFS.symlink(%s, %s)", path, symlink)
         return(None)
 
     def rename(self, path, path1):
@@ -142,7 +141,7 @@ class PyDedupFS(fuse.Fuse):
         return EROFS if filesystem is read only
         if target name exists, delete file it
         """
-        self.logger.debug("PyDedupFS.rename(%s, %s)", path, path1)
+        logging.debug("PyDedupFS.rename(%s, %s)", path, path1)
         self.meta_storage.rename(path, path1)
         return(0)
 
@@ -156,7 +155,7 @@ class PyDedupFS(fuse.Fuse):
         # with the same inode number (maybe because of internal caching based on
         # inode numbers?).
         """
-        self.logger.debug("PyDedupFS.link(%s, %s)", path, path1)
+        logging.debug("PyDedupFS.link(%s, %s)", path, path1)
         # map link to copy
         self.meta_storage.copy(path, path1)
 
@@ -165,7 +164,7 @@ class PyDedupFS(fuse.Fuse):
         0 if success
         errno.EIO if something went wrong
         """
-        self.logger.debug("PyDedupFS.chmod(%s, mode=%s)", path, mode)
+        logging.debug("PyDedupFS.chmod(%s, mode=%s)", path, mode)
         self.meta_storage.chmod(path, mode)
         return(0)
 
@@ -174,7 +173,7 @@ class PyDedupFS(fuse.Fuse):
         0 is success
         errno.EIO if something went wrong
         """
-        self.logger.debug("PyDedupFS.chown(%s, user=%s, group=%s)", path, user, group)
+        logging.debug("PyDedupFS.chown(%s, user=%s, group=%s)", path, user, group)
         self.meta_storage.chown(path, user, group)
         return(0)
 
@@ -183,25 +182,25 @@ class PyDedupFS(fuse.Fuse):
         we dont want special Files
         NOT IMPLEMENTED : we dont want special Files
         """
-        self.logger.debug("PyDedupFS.mknod(%s, mode=%s, dev=%s)", path, mode, dev)
+        logging.debug("PyDedupFS.mknod(%s, mode=%s, dev=%s)", path, mode, dev)
         return(None)
 
     def mkdir(self, path, mode):
         """create directory"""
-        self.logger.debug("PyDedupFS.mkdir(%s, mode=%s)", path, mode)
+        logging.debug("PyDedupFS.mkdir(%s, mode=%s)", path, mode)
         self.meta_storage.mkdir(path, mode)
         return(0)
 
     def utime(self, path, times):
         """deprecated applications should use utimens"""
-        self.logger.debug("PyDedupFS.utime(%s, times=%s)", path, times)
+        logging.debug("PyDedupFS.utime(%s, times=%s)", path, times)
         atime, mtime = times
         self.meta_storage.utime(path, atime, mtime)
         return(0)
 
     def utimens(self, path, ts_atime, ts_mtime):
         """sets mtime and atime of file"""
-        self.logger.debug("PyDedupFS.utimens(%s, %s.%s, %s.%s)", path, ts_atime.tv_sec, ts_atime.tv_nsec, ts_mtime.tv_sec, ts_mtime.tv_nsec)
+        logging.debug("PyDedupFS.utimens(%s, %s.%s, %s.%s)", path, ts_atime.tv_sec, ts_atime.tv_nsec, ts_mtime.tv_sec, ts_mtime.tv_nsec)
         atime = ts_atime.tv_sec + (ts_atime.tv_nsec / 1000000.0)
         mtime = ts_mtime.tv_sec + (ts_mtime.tv_nsec / 1000000.0)
         self.meta_storage.utime(path, atime, mtime)
@@ -212,7 +211,7 @@ class PyDedupFS(fuse.Fuse):
         -errno.EACCES if file is not accessible
         -errno.ENOENT if file does not exists or other error
         """
-        self.logger.debug("PyDedupFS.access(%s, mode=%s)", path, mode)
+        logging.debug("PyDedupFS.access(%s, mode=%s)", path, mode)
 
     def statfs(self):
         """
@@ -232,7 +231,7 @@ class PyDedupFS(fuse.Fuse):
             - f_files - total number of file inodes
             - f_ffree - nunber of free file inodes
         """
-        self.logger.debug("PyDedupFS.statfs()")
+        logging.debug("PyDedupFS.statfs()")
         # from https://github.com/xolox/dedupfs/blob/master/dedupfs.py
         # TODO make this a parameter
         host_fs = os.statvfs(self.base)
@@ -260,20 +259,21 @@ class PyDedupFS(fuse.Fuse):
 
     def fsinit(self):
         """called after fs initialization"""
-        self.logger.debug("PyDedupFS.fsinit()")
+        logging.debug("PyDedupFS.fsinit()")
         try:
             options = self.cmdline[0]
-            self.logger.info(options.blocksize)
+            logging.info(options.blocksize)
             self.base = options.base
-            self.logger.info("Base Directory : %s", self.base)
+            logging.info("Base Directory : %s", self.base)
             self.blocksize = options.blocksize
-            self.logger.info("Blocksize      : %s", self.blocksize)
+            logging.info("Blocksize      : %s", self.blocksize)
             self.str_hasfunc = options.str_hashfunc
-            self.logger.info("Hash Function  : hashlib.%s", self.hashfunc)
+            logging.info("Hash Function  : hashlib.%s", self.hashfunc)
             self.hashfunc = getattr(hashlib, self.str_hashfunc)
         except StandardError, exc:
-            self.logger.exception(exc)
+            logging.exception(exc)
         # initialize meta_storage properly
+        logging.info("Initialize MetaStorage")
         self.meta_storage = MetaStorage(self.base, self.blocksize, self.hashfunc)
 
     def main(self, *a, **kw):

@@ -30,8 +30,7 @@ class WriteBuffer(object):
     """Object to hold data with maximum length blocksize, the flush"""
 
     def __init__(self, meta_storage, block_storage, blocksize, hashfunc):
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.logger.debug("WriteBuffer.__init__()")
+        logging.debug("WriteBuffer.__init__()")
         self.blocksize = blocksize
         # hashfunc has to be use like hashlib.sha1
         self.hashfunc = hashfunc
@@ -53,7 +52,7 @@ class WriteBuffer(object):
         maximum length is blocksize,
         but block can already be smaller
         """
-        self.logger.debug("WriteBuffer.flush()")
+        logging.debug("WriteBuffer.flush()")
         # flush self.buf
         # blocklevel hash
         blockhash = self.hashfunc()
@@ -74,26 +73,26 @@ class WriteBuffer(object):
 
     def add(self, data):
         """adds data to buffer and flushes if length > blocksize"""
-        # self.logger.debug("WriteBuffer.add(<buf>)")
+        # logging.debug("WriteBuffer.add(<buf>)")
         l_data = len(data)
         l_buf = len(self.buf)
         if (l_buf + l_data) >= self.blocksize:
             # add only remaining bytes to internal buffer
             self.buf += data[:self.blocksize-l_buf]
-            # self.logger.debug("Buffer flush")
+            # logging.debug("Buffer flush")
             # assert len(self.buf) == self.blocksize
             self.flush()
             # begin next block buffer
             self.buf = data[self.blocksize:]
         else:
-            # self.logger.debug("Adding buffer")
+            # logging.debug("Adding buffer")
             # assert len(self.buf) < self.blocksize
             self.buf += data
         return(l_data)
 
     def __reinit(self):
         """set some counters to initial values"""
-        self.logger.debug("WriteBuffer.__reinit()")
+        logging.debug("WriteBuffer.__reinit()")
         self.buf = ""
         # counting bytes = len
         self.bytecounter = 0
@@ -106,7 +105,7 @@ class WriteBuffer(object):
 
     def release(self):
         """write remaining data, and closes file"""
-        self.logger.debug("WriteBuffer.release()")
+        logging.debug("WriteBuffer.release()")
         if len(self.buf) != 0:
             self.flush()
         # write meta information
